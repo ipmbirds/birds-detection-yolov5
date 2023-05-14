@@ -116,7 +116,8 @@ def create_dataloader(path,
                       quad=False,
                       prefix='',
                       shuffle=False,
-                      seed=0):
+                      seed=0,
+                      channels=[]):
     if rect and shuffle:
         LOGGER.warning('WARNING ⚠️ --rect is incompatible with DataLoader shuffle, setting shuffle=False')
         shuffle = False
@@ -133,7 +134,8 @@ def create_dataloader(path,
             stride=int(stride),
             pad=pad,
             image_weights=image_weights,
-            prefix=prefix)
+            prefix=prefix,
+            channels=channels)
 
     batch_size = min(batch_size, len(dataset))
     nd = torch.cuda.device_count()  # number of CUDA devices
@@ -449,7 +451,8 @@ class LoadImagesAndLabels(Dataset):
                  stride=32,
                  pad=0.0,
                  min_items=0,
-                 prefix=''):
+                 prefix='',
+                 channels=[]):
         self.img_size = img_size
         self.augment = augment
         self.hyp = hyp
@@ -460,6 +463,7 @@ class LoadImagesAndLabels(Dataset):
         self.stride = stride
         self.path = path
         self.albumentations = Albumentations(size=img_size) if augment else None
+        self.channels = channels
 
         try:
             f = []  # image files
@@ -734,6 +738,14 @@ class LoadImagesAndLabels(Dataset):
             else:  # read image
                 im = cv2.imread(f)  # BGR
                 assert im is not None, f'Image Not Found {f}'
+                for ch_dir in self.channels:
+                    ch_path = f.replace(f.split('/')[-2],ch_dir)
+                    channel = cv2.imread(ch_path, cv2.IMREAD_UNCHANGED)
+                    if channel.ndim < 3:
+                        channel = channel.reshape(channel.shape[0],channel.shape[1],1)
+                    assert channel is not None, f'Channel Image Not Found {ch_path}'
+                    im = np.concatenate((im,channel),axis = 2)
+                
             h0, w0 = im.shape[:2]  # orig hw
             r = self.img_size / max(h0, w0)  # ratio
             if r != 1:  # if sizes are not equal
