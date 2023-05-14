@@ -138,7 +138,7 @@ target/
 
 # Jupyter Notebook
 .ipynb_checkpoints
-experiments.ipynb
+*.ipynb
 
 # pyenv
 .python-version
