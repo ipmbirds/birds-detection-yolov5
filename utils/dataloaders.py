@@ -232,7 +232,11 @@ class LoadScreenshots:
             im = self.transforms(im0)  # transforms
         else:
             im = letterbox(im0, self.img_size, stride=self.stride, auto=self.auto)[0]  # padded resize
-            im = im.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
+            rgb = im[:,:,:3]
+            ch = im[:,:,3:]
+            rgb = rgb.transpose((2, 0, 1))[::-1]
+            ch = ch.transpose((2, 0, 1))
+            im = np.concatenate((rgb, ch),axis = 0)  # HWC to CHW, BGR to RGB
             im = np.ascontiguousarray(im)  # contiguous
         self.frame += 1
         return str(self.screen), im, im0, None, s  # screen, img, original img, im0s, s
@@ -314,7 +318,11 @@ class LoadImages:
             im = self.transforms(im0)  # transforms
         else:
             im = letterbox(im0, self.img_size, stride=self.stride, auto=self.auto)[0]  # padded resize
-            im = im.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
+            rgb = im[:,:,:3]
+            ch = im[:,:,3:]
+            rgb = rgb.transpose((2, 0, 1))[::-1]
+            ch = ch.transpose((2, 0, 1))
+            im = np.concatenate((rgb, ch),axis = 0)
             im = np.ascontiguousarray(im)  # contiguous
 
         return path, im, im0, self.cap, s
@@ -724,7 +732,12 @@ class LoadImagesAndLabels(Dataset):
             labels_out[:, 1:] = torch.from_numpy(labels)
 
         # Convert
-        img = img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
+        rgb = img[:,:,:3]
+        ch = img[:,:,3:]
+        rgb = rgb.transpose((2, 0, 1))[::-1]
+        ch = ch.transpose((2, 0, 1))
+        img = np.concatenate((rgb, ch),axis = 0)  # HWC to CHW, BGR to RGB
+        
         img = np.ascontiguousarray(img)
 
         return torch.from_numpy(img), labels_out, self.im_files[index], shapes
@@ -774,6 +787,7 @@ class LoadImagesAndLabels(Dataset):
             # place img in img4
             if i == 0:  # top left
                 img4 = np.full((s * 2, s * 2, img.shape[2]), 114, dtype=np.uint8)  # base image with 4 tiles
+                img4[:,:,3:] = 0 
                 x1a, y1a, x2a, y2a = max(xc - w, 0), max(yc - h, 0), xc, yc  # xmin, ymin, xmax, ymax (large image)
                 x1b, y1b, x2b, y2b = w - (x2a - x1a), h - (y2a - y1a), w, h  # xmin, ymin, xmax, ymax (small image)
             elif i == 1:  # top right
