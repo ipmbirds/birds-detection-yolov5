@@ -124,14 +124,19 @@ def run(
     
     gs = max(int(model.stride.max()), 32)  # grid size (max stride)
     
+    
+    data = check_dataset(data)  # check
+    
+    channels = data['channels'] if 'channels' in data else []
+    channels_num = data['ch'] if 'ch' in data else 3
+    
     infer_obj = Inference_bird(
         model=model,
         imgsz=640,
         conf_thres=conf_thres,
         iou_thres=iou_thres,
+        ch = channels_num
     )
-    
-    data = check_dataset(data)  # check
     
     # Configure
     is_coco = isinstance(data.get('val'), str) and data['val'].endswith(f'coco{os.sep}val2017.txt')  # COCO dataset
@@ -151,7 +156,8 @@ def run(
                                    single_cls,
                                    pad=0,
                                    rect=True,
-                                   prefix=colorstr(f'{task}: '))[0]
+                                   prefix=colorstr(f'{task}: '),  
+                                   channels = channels)[0]
     
     seen = 0
     confusion_matrix = ConfusionMatrix(nc=nc)
