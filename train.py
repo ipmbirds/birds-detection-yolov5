@@ -128,8 +128,22 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
         model = Model(cfg or ckpt['model'].yaml, ch=channels_num, nc=nc, anchors=hyp.get('anchors')).to(device)  # create
         exclude = ['anchor'] if (cfg or hyp.get('anchors')) and not resume else []  # exclude keys
         csd = ckpt['model'].float().state_dict()  # checkpoint state_dict as FP32
+        csd_new = csd
         csd = intersect_dicts(csd, model.state_dict(), exclude=exclude)  # intersect
         model.load_state_dict(csd, strict=False)  # load
+        if channels_num > 3:
+            x_shape,y_shape,z_shape, w_shape = csd_new['model.0.conv.weight'].shape
+            for name, param in model.named_parameters():
+                if 'model.0.conv.weight' in name:
+                    print('-'*20)
+                    print(name)
+                    print('-'*20)
+                    print(param.shape)
+                    with torch.no_grad():
+                        param[:,0:3,:,:] = csd_new['model.0.conv.weight']
+                        param[:,3: channels_num ,:,:] = torch.mean(csd_new['model.0.conv.weight'],1).reshape(x_shape,channels_num -3,z_shape,w_shape)
+
+
         LOGGER.info(f'Transferred {len(csd)}/{len(model.state_dict())} items from {weights}')  # report
     else:
         model = Model(cfg, ch=channels_num, nc=nc, anchors=hyp.get('anchors')).to(device)  # create

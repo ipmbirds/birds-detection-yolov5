@@ -315,7 +315,7 @@ def run(
 
     # Print speeds
     t = dt.t / seen * 1E3  # speeds per image
-    shape = (batch_size, 3, imgsz, imgsz)
+    shape = (batch_size, channels_num, imgsz, imgsz)
     LOGGER.info(f'Speed: %.1fms inference per image at shape {shape}' % t)
 
     # Plots
