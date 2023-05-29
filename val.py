@@ -154,6 +154,9 @@ def run(
 
         # Data
         data = check_dataset(data)  # check
+        
+    channels = data['channels'] if 'channels' in data else []
+    channels_num = data['ch'] if 'ch' in data else 3
 
     # Configure
     model.eval()
@@ -169,7 +172,7 @@ def run(
             ncm = model.model.nc
             assert ncm == nc, f'{weights} ({ncm} classes) trained on different --data than what you passed ({nc} ' \
                               f'classes). Pass correct combination of --weights and --data that are trained together.'
-        model.warmup(imgsz=(1 if pt else batch_size, 3, imgsz, imgsz))  # warmup
+        model.warmup(imgsz=(1 if pt else batch_size, channels_num, imgsz, imgsz))  # warmup
         pad, rect = (0.0, False) if task == 'speed' else (0.5, pt)  # square inference for benchmarks
         task = task if task in ('train', 'val', 'test') else 'val'  # path to train/val/test images
         dataloader = create_dataloader(data[task],
@@ -180,7 +183,8 @@ def run(
                                        pad=pad,
                                        rect=rect,
                                        workers=workers,
-                                       prefix=colorstr(f'{task}: '))[0]
+                                       prefix=colorstr(f'{task}: '),
+                                       channels= channels)[0]
 
     seen = 0
     confusion_matrix = ConfusionMatrix(nc=nc)
@@ -214,7 +218,7 @@ def run(
             loss += compute_loss(train_out, targets)[1]  # box, obj, cls
 
         # NMS
-        targets[:, 2:] *= torch.tensor((width, height, width, height), device=device)  # to pixels
+        targets[:, 2:6] *= torch.tensor((width, height, width, height), device=device)  # to pixels
         lb = [targets[targets[:, 0] == i, 1:] for i in range(nb)] if save_hybrid else []  # for autolabelling
         with dt[2]:
             preds = non_max_suppression(preds,
@@ -292,7 +296,7 @@ def run(
     # Print speeds
     t = tuple(x.t / seen * 1E3 for x in dt)  # speeds per image
     if not training:
-        shape = (batch_size, 3, imgsz, imgsz)
+        shape = (batch_size, channels_num, imgsz, imgsz)
         LOGGER.info(f'Speed: %.1fms pre-process, %.1fms inference, %.1fms NMS per image at shape {shape}' % t)
 
     # Plots
