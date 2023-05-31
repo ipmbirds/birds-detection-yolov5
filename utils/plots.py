@@ -477,12 +477,16 @@ def plot_val_study(file='', dir='', x=None):  # from utils.plots import *; plot_
 
 
 @TryExcept()  # known issue https://github.com/ultralytics/yolov5/issues/5395
-def plot_labels(labels, names=(), save_dir=Path('')):
+def plot_labels(labels, names=(), save_dir=Path(''), uncertain=False):
     # plot dataset labels
     LOGGER.info(f"Plotting labels to {save_dir / 'labels.jpg'}... ")
     c, b = labels[:, 0], labels[:, 1:].transpose()  # classes, boxes
     nc = int(c.max() + 1)  # number of classes
-    x = pd.DataFrame(b.transpose(), columns=['x', 'y', 'width', 'height'])
+    if uncertain:
+        x = pd.DataFrame(b.transpose(), columns=['x', 'y', 'width', 'height','conf'])
+    else:
+        x = pd.DataFrame(b.transpose(), columns=['x', 'y', 'width', 'height'])
+    
 
     # seaborn correlogram
     sn.pairplot(x, corner=True, diag_kind='auto', kind='hist', diag_kws=dict(bins=50), plot_kws=dict(pmax=0.9))
@@ -509,7 +513,7 @@ def plot_labels(labels, names=(), save_dir=Path('')):
     labels[:, 1:] = xywh2xyxy(labels[:, 1:]) * 2000
     img = Image.fromarray(np.ones((2000, 2000, 3), dtype=np.uint8) * 255)
     for cls, *box in labels[:1000]:
-        ImageDraw.Draw(img).rectangle(box, width=1, outline=colors(cls))  # plot
+        ImageDraw.Draw(img).rectangle(box[:4], width=1, outline=colors(cls))
     ax[1].imshow(img)
     ax[1].axis('off')
 
