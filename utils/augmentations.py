@@ -138,7 +138,8 @@ def letterbox(im, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleF
     top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))
     left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
     
-    im_out = np.empty((new_shape[0],new_shape[1],im.shape[2]), dtype = np.int32)
+    im_out = np.empty((im.shape[0] + top + bottom,im.shape[1] + left + right,im.shape[2]), dtype = np.int32)
+    
     im_out[:,:,:3] = cv2.copyMakeBorder(im[:,:,:3], top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)  # add border
     for i in range(3,im.shape[2]):
         im_out[:,:,i] = cv2.copyMakeBorder(im[:,:,i], top, bottom, left, right, cv2.BORDER_CONSTANT, value=(0,0,0))
