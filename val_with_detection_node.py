@@ -124,19 +124,24 @@ def run(
     
     gs = max(int(model.stride.max()), 32)  # grid size (max stride)
     
+    
+    data = check_dataset(data)  # check
+    
+    channels = data['channels'] if 'channels' in data else []
+    channels_num = data['ch'] if 'ch' in data else 3
+    
     infer_obj = Inference_bird(
         model=model,
         imgsz=640,
         conf_thres=conf_thres,
         iou_thres=iou_thres,
+        ch = channels_num
     )
-    
-    data = check_dataset(data)  # check
     
     # Configure
     is_coco = isinstance(data.get('val'), str) and data['val'].endswith(f'coco{os.sep}val2017.txt')  # COCO dataset
     nc = 1 if single_cls else int(data['nc'])  # number of classes
-    iouv = torch.linspace(0.4, 0.95, 12, device=device)  # iou vector for mAP@0.4:0.95
+    iouv = torch.linspace(0.5, 0.95, 10, device=device)  # iou vector for mAP@0.5:0.95
     niou = iouv.numel()
     
     plot_iouv = torch.linspace(0.0, 0.9, 10, device=device)  # iou vector for plot 0.0:0.9
@@ -151,7 +156,8 @@ def run(
                                    single_cls,
                                    pad=0,
                                    rect=True,
-                                   prefix=colorstr(f'{task}: '))[0]
+                                   prefix=colorstr(f'{task}: '),  
+                                   channels = channels)[0]
     
     seen = 0
     confusion_matrix = ConfusionMatrix(nc=nc)
@@ -159,8 +165,8 @@ def run(
     if isinstance(names, (list, tuple)):  # old format
         names = dict(enumerate(names))
     class_map = coco80_to_coco91_class() if is_coco else list(range(1000))
-    s = ('%22s' + '%11s' * 6) % ('Class', 'Images', 'Instances', 'P', 'R', 'mAP40', 'mAP40-95')
-    tp, fp, p, r, f1, mp, mr, map40, ap40, map = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
+    s = ('%22s' + '%11s' * 6) % ('Class', 'Images', 'Instances', 'P', 'R', 'mAP50', 'mAP50-95')
+    tp, fp, p, r, f1, mp, mr, map50, ap50, map = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
     dt = Profile()  # profiling times
     jdict, stats, ap, ap_class = [], [], [], []
     callbacks.run('on_val_start')
@@ -292,30 +298,30 @@ def run(
     stats = [torch.cat(x, 0).cpu().numpy() for x in zip(*stats)]  # to numpy
     if len(stats) and stats[0].any():
         tp, fp, p, r, f1, ap, ap_class = ap_per_class(*stats, plot=plots, save_dir=save_dir, names=names)
-        ap40, ap = ap[:, 0], ap.mean(1)  # AP@0.4, AP@0.4:0.95
-        mp, mr, map40, map = p.mean(), r.mean(), ap40.mean(), ap.mean()
+        ap50, ap = ap[:, 0], ap.mean(1)  # AP@0.5, AP@0.5:0.95
+        mp, mr, map50, map = p.mean(), r.mean(), ap50.mean(), ap.mean()
     nt = np.bincount(stats[3].astype(int), minlength=nc)  # number of targets per class
 
     # Print results
     pf = '%22s' + '%11i' * 2 + '%11.3g' * 4  # print format
-    LOGGER.info(pf % ('all', seen, nt.sum(), mp, mr, map40, map))
+    LOGGER.info(pf % ('all', seen, nt.sum(), mp, mr, map50, map))
     if nt.sum() == 0:
         LOGGER.warning(f'WARNING ⚠️ no labels found in {task} set, can not compute metrics without labels')
 
     # Print results per class
     if nc < 50 and nc > 1 and len(stats):
         for i, c in enumerate(ap_class):
-            LOGGER.info(pf % (names[c], seen, nt[c], p[i], r[i], ap40[i], ap[i]))
+            LOGGER.info(pf % (names[c], seen, nt[c], p[i], r[i], ap50[i], ap[i]))
 
     # Print speeds
     t = dt.t / seen * 1E3  # speeds per image
-    shape = (batch_size, 3, imgsz, imgsz)
+    shape = (batch_size, channels_num, imgsz, imgsz)
     LOGGER.info(f'Speed: %.1fms inference per image at shape {shape}' % t)
 
     # Plots
     if plots:
         confusion_matrix.plot(save_dir=save_dir, names=list(names.values()))
-        callbacks.run('on_val_end', nt, tp, fp, p, r, f1, ap, ap40, ap_class, confusion_matrix)
+        callbacks.run('on_val_end', nt, tp, fp, p, r, f1, ap, ap50, ap_class, confusion_matrix)
 
     # Save JSON
     if save_json and len(jdict):
@@ -363,7 +369,7 @@ def run(
     maps = np.zeros(nc) + map
     for i, c in enumerate(ap_class):
         maps[c] = ap[i]
-    return (mp, mr, map40, map, _), maps, t
+    return (mp, mr, map50, map, _), maps, t
 
 
 def parse_opt():

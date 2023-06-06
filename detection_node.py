@@ -67,6 +67,7 @@ class Inference_bird:
         max_det=1000,
         overlap_thres=0.25,
         half=False,
+        ch=3
     ) -> None:
         self.conf_thres = conf_thres
         self.iou_thres = iou_thres
@@ -100,7 +101,7 @@ class Inference_bird:
         # Run inference
         if self.device.type != "cpu":
             self.model(
-                torch.zeros(1, 3, self.img_size, self.img_size)
+                torch.zeros(1, ch, self.img_size, self.img_size)
                 .to(self.device)
                 .type_as(next(self.model.parameters()))
             )  # run once

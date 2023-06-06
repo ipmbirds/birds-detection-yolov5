@@ -68,7 +68,7 @@ def augment_hsv(im, hgain=0.5, sgain=0.5, vgain=0.5):
     # HSV color-space augmentation
     if hgain or sgain or vgain:
         r = np.random.uniform(-1, 1, 3) * [hgain, sgain, vgain] + 1  # random gains
-        hue, sat, val = cv2.split(cv2.cvtColor(im, cv2.COLOR_BGR2HSV))
+        hue, sat, val = cv2.split(cv2.cvtColor(im[:,:,:3], cv2.COLOR_BGR2HSV))
         dtype = im.dtype  # uint8
 
         x = np.arange(0, 256, dtype=r.dtype)
@@ -77,7 +77,7 @@ def augment_hsv(im, hgain=0.5, sgain=0.5, vgain=0.5):
         lut_val = np.clip(x * r[2], 0, 255).astype(dtype)
 
         im_hsv = cv2.merge((cv2.LUT(hue, lut_hue), cv2.LUT(sat, lut_sat), cv2.LUT(val, lut_val)))
-        cv2.cvtColor(im_hsv, cv2.COLOR_HSV2BGR, dst=im)  # no return needed
+        cv2.cvtColor(im_hsv, cv2.COLOR_HSV2BGR, dst=im.copy())  # no return needed
 
 
 def hist_equalize(im, clahe=True, bgr=False):
@@ -137,8 +137,14 @@ def letterbox(im, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleF
         im = cv2.resize(im, new_unpad, interpolation=cv2.INTER_LINEAR)
     top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))
     left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
-    im = cv2.copyMakeBorder(im, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)  # add border
-    return im, ratio, (dw, dh)
+    
+    im_out = np.empty((im.shape[0] + top + bottom,im.shape[1] + left + right,im.shape[2]), dtype = np.int32)
+    
+    im_out[:,:,:3] = cv2.copyMakeBorder(im[:,:,:3], top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)  # add border
+    for i in range(3,im.shape[2]):
+        im_out[:,:,i] = cv2.copyMakeBorder(im[:,:,i], top, bottom, left, right, cv2.BORDER_CONSTANT, value=(0,0,0))
+
+    return im_out, ratio, (dw, dh)
 
 def letterbox_batch(
     im,
@@ -209,7 +215,9 @@ def random_perspective(im,
                        border=(0, 0)):
     # torchvision.transforms.RandomAffine(degrees=(-10, 10), translate=(0.1, 0.1), scale=(0.9, 1.1), shear=(-10, 10))
     # targets = [cls, xyxy]
-
+    
+    im = im.astype(np.uint8)
+    
     height = im.shape[0] + border[0] * 2  # shape(h,w,c)
     width = im.shape[1] + border[1] * 2
 
@@ -245,9 +253,17 @@ def random_perspective(im,
     M = T @ S @ R @ P @ C  # order of operations (right to left) is IMPORTANT
     if (border[0] != 0) or (border[1] != 0) or (M != np.eye(3)).any():  # image changed
         if perspective:
-            im = cv2.warpPerspective(im, M, dsize=(width, height), borderValue=(114, 114, 114))
+            im_out = np.empty((height, width, im.shape[2]), dtype = np.uint8)
+            im_out[:,:,:3] = cv2.warpPerspective(im[:,:,:3], M, dsize=(width, height), borderValue=(114, 114, 114))  # add border
+            for i in range(3,im.shape[2]):
+                im_out[:,:,i] = cv2.warpPerspective(im[:,:,i], M, dsize=(width, height), borderValue=(0, 0, 0))
+            im = im_out
         else:  # affine
-            im = cv2.warpAffine(im, M[:2], dsize=(width, height), borderValue=(114, 114, 114))
+            im_out = np.empty((height, width, im.shape[2]), dtype = np.uint8)
+            im_out[:,:,:3] = cv2.warpAffine(im[:,:,:3], M[:2], dsize=(width, height), borderValue=(114, 114, 114))  # add border
+            for i in range(3,im.shape[2]):
+                im_out[:,:,i] = cv2.warpAffine(im[:,:,i], M[:2], dsize=(width, height), borderValue=(0, 0, 0))
+            im = im_out
 
     # Visualize
     # import matplotlib.pyplot as plt

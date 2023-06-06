@@ -42,7 +42,7 @@ class FocalLoss(nn.Module):
         self.reduction = loss_fcn.reduction
         self.loss_fcn.reduction = 'none'  # required to apply FL to each element
 
-    def forward(self, pred, true):
+    def forward(self, pred, true, weight = None):
         loss = self.loss_fcn(pred, true)
         # p_t = torch.exp(-loss)
         # loss *= self.alpha * (1.000001 - p_t) ** self.gamma  # non-zero power for gradient stability
@@ -53,7 +53,10 @@ class FocalLoss(nn.Module):
         alpha_factor = true * self.alpha + (1 - true) * (1 - self.alpha)
         modulating_factor = (1.0 - p_t) ** self.gamma
         loss *= alpha_factor * modulating_factor
-
+        
+        if weight is not None:
+            loss = loss * weight  
+        
         if self.reduction == 'mean':
             return loss.mean()
         elif self.reduction == 'sum':
@@ -92,19 +95,22 @@ class ComputeLoss:
     sort_obj_iou = False
 
     # Compute losses
-    def __init__(self, model, autobalance=False):
+    def __init__(self, model, autobalance=False, uncertain=False):
+        self.uncertain = uncertain
         device = next(model.parameters()).device  # get model device
         h = model.hyp  # hyperparameters
 
         # Define criteria
         BCEcls = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([h['cls_pw']], device=device))
-        BCEobj = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([h['obj_pw']], device=device))
+        # BCEobj = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([h['obj_pw']], device=device))
+        BCEobj = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([h['obj_pw']], device=device), reduction = 'none')
 
         # Class label smoothing https://arxiv.org/pdf/1902.04103.pdf eqn 3
         self.cp, self.cn = smooth_BCE(eps=h.get('label_smoothing', 0.0))  # positive, negative BCE targets
 
         # Focal loss
         g = h['fl_gamma']  # focal loss gamma
+        self.g = g
         if g > 0:
             BCEcls, BCEobj = FocalLoss(BCEcls, g), FocalLoss(BCEobj, g)
 
@@ -122,12 +128,13 @@ class ComputeLoss:
         lcls = torch.zeros(1, device=self.device)  # class loss
         lbox = torch.zeros(1, device=self.device)  # box loss
         lobj = torch.zeros(1, device=self.device)  # object loss
-        tcls, tbox, indices, anchors = self.build_targets(p, targets)  # targets
+        tcls, tbox, indices, anchors, tweights = self.build_targets(p, targets, self.uncertain)  # targets
 
         # Losses
         for i, pi in enumerate(p):  # layer index, layer predictions
             b, a, gj, gi = indices[i]  # image, anchor, gridy, gridx
             tobj = torch.zeros(pi.shape[:4], dtype=pi.dtype, device=self.device)  # target obj
+            tcon = torch.ones_like(pi[..., 0], device=self.device, dtype = torch.float32)  # target conf
 
             n = b.shape[0]  # number of targets
             if n:
@@ -149,6 +156,8 @@ class ComputeLoss:
                 if self.gr < 1:
                     iou = (1.0 - self.gr) + self.gr * iou
                 tobj[b, a, gj, gi] = iou  # iou ratio
+                if self.uncertain:
+                    tcon[b,a,gj,gi] = tweights[i] # conf_adding
 
                 # Classification
                 if self.nc > 1:  # cls loss (only if multiple classes)
@@ -159,8 +168,18 @@ class ComputeLoss:
                 # Append targets to text file
                 # with open('targets.txt', 'a') as file:
                 #     [file.write('%11.5g ' * 4 % tuple(x) + '\n') for x in torch.cat((txy[i], twh[i]), 1)]
-
-            obji = self.BCEobj(pi[..., 4], tobj)
+                
+            if self.g>0:
+                if self.uncertain:
+                    obji =self.BCEobj(pi[..., 4], tobj, tcon).mean()
+                else:
+                    obji =self.BCEobj(pi[..., 4], tobj).mean()
+            else:
+                if self.uncertain:
+                    obji = (tcon * self.BCEobj(pi[..., 4], tobj)).mean()
+                else:
+                    obji = (self.BCEobj(pi[..., 4], tobj)).mean()
+  
             lobj += obji * self.balance[i]  # obj loss
             if self.autobalance:
                 self.balance[i] = self.balance[i] * 0.9999 + 0.0001 / obji.detach().item()
@@ -174,11 +193,15 @@ class ComputeLoss:
 
         return (lbox + lobj + lcls) * bs, torch.cat((lbox, lobj, lcls)).detach()
 
-    def build_targets(self, p, targets):
+    def build_targets(self, p, targets, uncertain=False):
         # Build targets for compute_loss(), input targets(image,class,x,y,w,h)
         na, nt = self.na, targets.shape[0]  # number of anchors, targets
-        tcls, tbox, indices, anch = [], [], [], []
-        gain = torch.ones(7, device=self.device)  # normalized to gridspace gain
+        tcls, tbox, indices, anch, tweights  = [], [], [], [], []
+        if uncertain:
+            gain = torch.ones(8, device=self.device)  # normalized to gridspace gain
+        else:
+            gain = torch.ones(7, device=self.device)  # normalized to gridspace gain
+            
         ai = torch.arange(na, device=self.device).float().view(na, 1).repeat(1, nt)  # same as .repeat_interleave(nt)
         targets = torch.cat((targets.repeat(na, 1, 1), ai[..., None]), 2)  # append anchor indices
 
@@ -220,15 +243,23 @@ class ComputeLoss:
                 offsets = 0
 
             # Define
-            bc, gxy, gwh, a = t.chunk(4, 1)  # (image, class), grid xy, grid wh, anchors
-            a, (b, c) = a.long().view(-1), bc.long().T  # anchors, image, class
+            if uncertain:
+                bc, gxy, gwh, conf_a = t.chunk(4, 1)  # (image, class), grid xy, grid wh, anchors
+                (conf, a) = conf_a.T
+                a, (b, c) = a.long(), bc.long().T  # anchors, image, class
+            else:
+                bc, gxy, gwh, a = t.chunk(4, 1)  # (image, class), grid xy, grid wh, anchors
+                a, (b, c) = a.long().view(-1), bc.long().T  # anchors, image, class
+                
             gij = (gxy - offsets).long()
             gi, gj = gij.T  # grid indices
 
             # Append
+            if uncertain:
+                tweights.append(conf)
             indices.append((b, a, gj.clamp_(0, shape[2] - 1), gi.clamp_(0, shape[3] - 1)))  # image, anchor, grid
             tbox.append(torch.cat((gxy - gij, gwh), 1))  # box
             anch.append(anchors[a])  # anchors
             tcls.append(c)  # class
 
-        return tcls, tbox, indices, anch
+        return tcls, tbox, indices, anch, tweights
