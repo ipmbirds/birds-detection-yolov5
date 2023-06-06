@@ -54,7 +54,7 @@ class FocalLoss(nn.Module):
         modulating_factor = (1.0 - p_t) ** self.gamma
         loss *= alpha_factor * modulating_factor
         
-        if weight:
+        if weight is not None:
             loss = loss * weight  
         
         if self.reduction == 'mean':
